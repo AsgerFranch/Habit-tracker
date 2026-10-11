@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Habit Base</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDK (Version 8 kompatibel) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #ffffff;
+            color: #000000;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        table { border-collapse: collapse; height: 100%; }
+        th, td { border: 1px solid #000; padding: 0; }
+
+        th.habit-header {
+            position: relative;
+            height: 90px;
+            width: 36px;
+            min-width: 36px;
+            max-width: 36px;
+            padding: 2px;
+            text-align: center;
+            background-color: #fff;
+            cursor: pointer;
+            transition: background-color 0.1s, color 0.1s;
+        }
+        
+        th.habit-header:hover { background-color: #000; color: #fff; }
+
+        .header-text {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            display: inline-block;
+            white-space: normal;
+            word-wrap: break-word;
+            line-height: 1.1;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -0.05em;
+            pointer-events: none;
+            max-height: 86px; /* slightly less than header height */
+        }
+
+        .brutal-checkbox {
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border: 1px solid #000;
+            background-color: #fff;
+            cursor: pointer;
+            position: relative;
+            outline: none;
+            display: block;
+            margin: 0 auto;
+            transition: all 0.1s;
+        }
+
+        .brutal-checkbox:disabled {
+            background-color: #f3f4f6;
+            border-color: #d1d5db;
+            cursor: not-allowed;
+            opacity: 0.3;
+        }
+
+        .brutal-checkbox:hover:not(:disabled) { background-color: #e5e7eb; }
+        .brutal-checkbox:checked:not(:disabled) { background-color: #000; }
+
+        .brutal-checkbox:checked::after {
+            content: '';
+            position: absolute;
+            left: 3px;
+            top: 1px;
+            width: 4px;
+            height: 8px;
+            border: solid #fff;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .brutal-input {
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            font-size: 11px;
+            font-weight: 900;
+            border: none;
+            outline: none;
+            background: transparent;
+            text-transform: uppercase;
+        }
+        
+        .brutal-input:focus {
+            background-color: #e5e7eb;
+        }
+
+        .brutal-input:disabled {
+            background-color: #f9fafb;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .brutal-shadow { box-shadow: 6px 6px 0px 0px rgba(0,0,0,1); }
+        
+        /* Custom scrollbar for table container */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-top: 1px solid #000;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #000; 
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen w-full overflow-hidden bg-white">
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginOverlay" class="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center p-4 transition-opacity duration-300">
+        <div class="w-full max-w-sm border-4 border-black p-8 bg-white brutal-shadow flex flex-col gap-6">
+            <h1 class="text-5xl font-black uppercase tracking-tighter leading-none border-b-4 border-black pb-4 text-center">Habit<br>Base</h1>
+            
+            <div class="flex flex-col gap-3">
+                <input type="email" id="loginEmail" class="border-2 border-black px-4 py-3 text-sm font-bold uppercase outline-none focus:bg-gray-100 placeholder-gray-400" placeholder="Email">
+                <input type="password" id="loginPassword" class="border-2 border-black px-4 py-3 text-sm font-bold uppercase outline-none focus:bg-gray-100 placeholder-gray-400" placeholder="Password">
+            </div>
+
+            <div class="flex flex-col gap-2">
+                <button id="loginBtn" class="bg-black text-white border-2 border-black px-4 py-3 text-sm font-black uppercase tracking-widest hover:bg-white hover:text-black transition-none w-full">
+                    Log Ind
+                </button>
+            </div>
+            <p id="loginError" class="text-red-600 font-bold text-xs uppercase tracking-tighter text-center hidden"></p>
+        </div>
+    </div>
+
+    <!-- MAIN APP WRAPPER -->
+    <div id="appContainer" class="hidden flex-col md:flex-row flex-1 overflow-hidden h-full w-full">
+        
+        <!-- Sidebar -->
+        <aside class="w-full md:w-40 border-b-2 md:border-b-0 md:border-r-2 border-black flex flex-col bg-white flex-shrink-0 z-30 justify-between">
+            <div>
+                <div class="p-3 border-b-2 border-black flex items-center justify-center">
+                    <h1 class="text-2xl font-black uppercase tracking-tighter leading-none text-center">Habit<br>Base</h1>
+                </div>
+                <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2" id="monthList">
+                    <!-- Måneder genereres her -->
+                </div>
+            </div>
+            
+            <div class="p-3 border-t-2 border-black">
+                <button id="logoutBtn" class="w-full text-center px-2 py-2 text-xs font-black uppercase tracking-tighter border-2 border-black bg-white text-black hover:bg-black hover:text-white transition-none">
+                    Log Ud
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col min-w-0 bg-white relative h-full overflow-hidden">
+            
+            <!-- Top Bar -->
+            <div class="p-2 border-b-2 border-black flex flex-row justify-between items-center gap-4 z-20 bg-white flex-shrink-0 h-[45px]">
+                <div class="flex items-center gap-3">
+                    <h2 id="activeMonthTitle" class="text-lg font-black uppercase tracking-tighter">Vælger...</h2>
+                    <span id="totalScore" class="bg-black text-white px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase">0%</span>
+                </div>
+                
+                <div class="flex w-auto gap-2">
+                    <input type="text" id="newHabitInput" class="border-2 border-black px-2 py-0.5 text-[10px] font-bold outline-none focus:bg-gray-100 transition-colors w-32 placeholder-gray-400 uppercase tracking-tighter" placeholder="Ny vane...">
+                    <button id="addHabitBtn" class="bg-black text-white border-2 border-black px-2 py-0.5 text-[10px] font-black uppercase tracking-tighter hover:bg-white hover:text-black transition-none">
+                        Tilføj
+                    </button>
+                </div>
+            </div>
+
+            <!-- Fejlbesked Banner -->
+            <div id="errorMsg" class="hidden bg-black text-white text-xs font-black uppercase tracking-widest p-2 text-center w-full z-40 border-b-2 border-black">
+                Besked her
+            </div>
+
+            <!-- CONTENT: Table + Chart Area -->
+            <div class="flex-1 overflow-hidden bg-white relative flex flex-row w-full h-full">
+                    
+                <!-- Venstre: Tabel med fast bredde koloner (scrollbar hvis nødvendigt) -->
+                <div class="flex-none max-w-[65%] md:max-w-[75%] overflow-x-auto overflow-y-hidden border-r-2 border-black bg-white custom-scrollbar flex flex-col h-full z-20">
+                    <table id="trackerTable" class="w-max table-fixed border-collapse h-full">
+                        <thead class="bg-white z-20 border-b-2 border-black sticky top-0">
+                            <tr id="tableHeaderRow" class="h-[90px]">
+                                <!-- Overskrifter genereres her -->
+                            </tr>
+                        </thead>
+                        <tbody id="trackerBody" class="bg-white">
+                            <!-- Rækker genereres her med procent-højde -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Højre: Lodret Graf Container (Flex-1 for at fylde resten af skærmen) -->
+                <div class="flex-1 bg-white flex flex-col relative z-10 min-w-0 h-full">
+                    <div class="h-[90px] bg-white border-b-2 border-black z-30 flex items-center justify-center flex-shrink-0">
+                        <h3 class="text-lg font-black uppercase tracking-tighter">SCORE</h3>
+                    </div>
+                    
+                    <div id="chartContainer" class="flex-1 relative bg-white overflow-hidden">
+                        <canvas id="verticalChart" class="absolute inset-0 w-full h-full"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white border-4 border-black w-full max-w-sm p-6 brutal-shadow flex flex-col gap-4 transform transition-transform">
+            <h3 class="text-2xl font-black uppercase tracking-tighter border-b-4 border-black pb-2">Rediger Vane</h3>
+            
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-black uppercase tracking-tighter">Vane Navn</label>
+                <input type="text" id="editHabitInput" class="border-2 border-black px-3 py-2 text-lg font-bold uppercase outline-none focus:bg-gray-100">
+            </div>
+
+            <div class="flex flex-col gap-1 mt-2">
+                <label class="text-[10px] font-black uppercase tracking-tighter">Type</label>
+                <select id="editHabitType" class="border-2 border-black px-3 py-2 text-sm font-bold uppercase outline-none focus:bg-gray-100 cursor-pointer">
+                    <option value="check">Afkrydsningsfelt</option>
+                    <option value="number">Tekst/Tal (Max 3 cifre)</option>
+                </select>
+            </div>
+
+            <div class="flex justify-between items-end mt-4">
+                <button id="deleteHabitBtn" class="text-xs font-black uppercase text-black hover:text-red-600 underline decoration-2 underline-offset-4 transition-colors">
+                    Slet Vane
+                </button>
+                <div class="flex gap-2">
+                    <button id="closeModalBtn" class="px-4 py-2 border-2 border-black text-black font-black uppercase tracking-tighter text-xs hover:bg-gray-200 transition-none">
+                        Fortryd
+                    </button>
+                    <button id="saveHabitBtn" class="px-4 py-2 bg-black text-white border-2 border-black font-black uppercase tracking-tighter text-xs hover:bg-white hover:text-black transition-none">
+                        Gem
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCqEJ5yRtTB1KjAG0RmnEsDNiXFJBKwUxo",
+            authDomain: "tempco2fugt.firebaseapp.com",
+            projectId: "tempco2fugt",
+            storageBucket: "tempco2fugt.firebasestorage.app",
+            messagingSenderId: "1068932962336",
+            appId: "1:1068932962336:web:1350266a7a9d24625a4445",
+            measurementId: "G-NSDDHWX7ML"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        let docRef = null;
+
+        // --- Dato Variabler ---
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth();
+        const currentDate = today.getDate();
+        const currentMonthId = `${currentYear}-${currentMonth}`;
+
+        function getMonthName(monthIndex) {
+            const date = new Date(2000, monthIndex, 1);
+            return date.toLocaleString('da-DK', { month: 'long' });
+        }
+
+        // --- State ---
+        let appState = { activeMonthId: null, months: {} };
+        let activeMonth = null;
+        let habitBeingEdited = null;
+
+        // --- DOM Elements ---
+        const loginOverlay = document.getElementById('loginOverlay');
+        const appContainer = document.getElementById('appContainer');
+        const loginEmail = document.getElementById('loginEmail');
+        const loginPassword = document.getElementById('loginPassword');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginError = document.getElementById('loginError');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const monthListEl = document.getElementById('monthList');
+        const activeMonthTitle = document.getElementById('activeMonthTitle');
+        const tableHeaderRow = document.getElementById('tableHeaderRow');
+        const trackerBody = document.getElementById('trackerBody');
+        const chartContainer = document.getElementById('chartContainer');
+        const totalScoreDisplay = document.getElementById('totalScore');
+        const newHabitInput = document.getElementById('newHabitInput');
+        const addHabitBtn = document.getElementById('addHabitBtn');
+        const errorMsg = document.getElementById('errorMsg');
+        
+        // Modal Elements
+        const editModal = document.getElementById('editModal');
+        const editHabitInput = document.getElementById('editHabitInput');
+        const editHabitType = document.getElementById('editHabitType');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const saveHabitBtn = document.getElementById('saveHabitBtn');
+        const deleteHabitBtn = document.getElementById('deleteHabitBtn');
+
+        // --- AUTH LOGIK ---
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                loginOverlay.classList.add('hidden');
+                appContainer.classList.remove('hidden');
+                appContainer.classList.add('flex');
+                
+                docRef = db.collection('users').doc(user.uid);
+                loadDataFromCloud();
+            } else {
+                loginOverlay.classList.remove('hidden');
+                appContainer.classList.add('hidden');
+                appContainer.classList.remove('flex');
+                docRef = null;
+            }
+        });
+
+        loginBtn.addEventListener('click', () => {
+            const email = loginEmail.value.trim();
+            const password = loginPassword.value;
+            if(!email || !password) return;
+            
+            loginBtn.innerText = "LOGGER IND...";
+            loginError.classList.add('hidden');
+
+            auth.signInWithEmailAndPassword(email, password).catch(err => {
+                loginBtn.innerText = "Log Ind";
+                let errMsg = "Fejl: Forkert login";
+                if (err.code === 'auth/wrong-password') errMsg = "Forkert adgangskode";
+                if (err.code === 'auth/user-not-found') errMsg = "Brugeren findes ikke";
+                if (err.code === 'auth/invalid-email') errMsg = "Ugyldig email-adresse";
+                loginError.innerText = errMsg;
+                loginError.classList.remove('hidden');
+            });
+        });
+
+        loginPassword.addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') loginBtn.click();
+        });
+
+        logoutBtn.addEventListener('click', () => {
+            auth.signOut();
+        });
+
+        // --- DATABASE LOGIK ---
+        function loadDataFromCloud() {
+            docRef.get().then((doc) => {
+                if (doc.exists) {
+                    appState = doc.data();
+                    if (!appState.months) {
+                        appState.months = {};
+                    }
+                } else {
+                    appState = { activeMonthId: null, months: {} };
+                }
+                ensureCurrentMonth();
+                renderApp();
+            }).catch((error) => {
+                showError("Firestore fejl: " + error.message);
+                if (!appState) appState = { activeMonthId: null, months: {} };
+                if (!appState.months) appState.months = {};
+                ensureCurrentMonth();
+                renderApp();
+            });
+        }
+
+        function saveState() {
+            if(docRef) {
+                docRef.set(appState, { merge: true }).catch(err => showError("Fejl ved gemning: " + err.message));
+            }
+        }
+
+        function ensureCurrentMonth() {
+            let autoSwitched = false;
+            
+            if (!appState.months) appState.months = {};
+            
+            if (!appState.months[currentMonthId]) {
+                let habitsToCopy = ["LÆSE", "TRÆNING", "VAND"];
+                let habitTypesToCopy = { "LÆSE": "check", "TRÆNING": "check", "VAND": "number" };
+                
+                const monthIds = Object.keys(appState.months);
+                
+                if (monthIds.length > 0) {
+                    monthIds.sort((a, b) => {
+                        const [ya, ma] = a.split('-').map(Number);
+                        const [yb, mb] = b.split('-').map(Number);
+                        if (ya !== yb) return yb - ya;
+                        return mb - ma;
+                    });
+                    const lastMonth = appState.months[monthIds[0]];
+                    habitsToCopy = [...lastMonth.habits];
+                    if (lastMonth.habitTypes) {
+                        habitTypesToCopy = JSON.parse(JSON.stringify(lastMonth.habitTypes));
+                    } else {
+                        habitsToCopy.forEach(h => habitTypesToCopy[h] = "check");
+                    }
+                }
+
+                appState.months[currentMonthId] = {
+                    id: currentMonthId,
+                    year: currentYear,
+                    monthIndex: currentMonth,
+                    name: `${getMonthName(currentMonth)} ${currentYear}`,
+                    days: new Date(currentYear, currentMonth + 1, 0).getDate(),
+                    habits: habitsToCopy,
+                    habitTypes: habitTypesToCopy,
+                    checks: {}
+                };
+                autoSwitched = true;
+            }
+
+            if (autoSwitched || !appState.activeMonthId || !appState.months[appState.activeMonthId]) {
+                appState.activeMonthId = currentMonthId;
+            }
+
+            activeMonth = appState.months[appState.activeMonthId];
+            if (!activeMonth.checks) activeMonth.checks = {};
+            if (!activeMonth.habitTypes) {
+                activeMonth.habitTypes = {};
+                activeMonth.habits.forEach(h => activeMonth.habitTypes[h] = "check");
+            }
+
+            if (autoSwitched) saveState();
+        }
+
+        function showError(msg) {
+            errorMsg.innerText = msg;
+            errorMsg.classList.remove('hidden');
+            setTimeout(() => errorMsg.classList.add('hidden'), 10000);
+        }
+
+        // --- RENDER LOGIK ---
+        function renderSidebar() {
+            monthListEl.innerHTML = '';
+            
+            const sortedMonthIds = Object.keys(appState.months).sort((a, b) => {
+                const [yearA, monthA] = a.split('-').map(Number);
+                const [yearB, monthB] = b.split('-').map(Number);
+                if (yearA !== yearB) return yearB - yearA; 
+                return monthB - monthA; 
+            });
+
+            sortedMonthIds.forEach(id => {
+                const month = appState.months[id];
+                const btn = document.createElement('button');
+                const isActive = id === appState.activeMonthId;
+                
+                btn.className = `w-full text-left px-2 py-1.5 text-[10px] font-black uppercase tracking-tighter border-2 border-black transition-none mb-1 ${isActive ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-200'}`;
+                btn.innerText = month.name;
+                btn.onclick = () => {
+                    appState.activeMonthId = id;
+                    activeMonth = appState.months[id];
+                    saveState();
+                    renderApp();
+                };
+                
+                monthListEl.appendChild(btn);
+            });
+        }
+
+        function renderTable() {
+            activeMonthTitle.innerText = activeMonth.name;
+            
+            // Header
+            tableHeaderRow.innerHTML = `
+                <th class="w-8 min-w-[32px] max-w-[32px] border-r border-black text-[8px] font-black uppercase tracking-tighter bg-white text-center align-bottom pb-1">
+                    Dag
+                </th>
+            `;
+            
+            activeMonth.habits.forEach(habit => {
+                const th = document.createElement('th');
+                th.className = 'habit-header border-r border-black';
+                
+                const span = document.createElement('span');
+                span.className = 'header-text';
+                span.innerText = habit;
+                
+                th.appendChild(span);
+                th.onclick = () => openEditModal(habit);
+                tableHeaderRow.appendChild(th);
+            });
+
+            // Body
+            trackerBody.innerHTML = '';
+            
+            const isCurrentMonthView = (activeMonth.year === currentYear && activeMonth.monthIndex === currentMonth);
+            const isFutureMonthView = (activeMonth.year > currentYear) || (activeMonth.year === currentYear && activeMonth.monthIndex > currentMonth);
+
+            for (let day = 1; day <= activeMonth.days; day++) {
+                const tr = document.createElement('tr');
+                const isToday = (isCurrentMonthView && day === currentDate);
+                const isFutureDay = isFutureMonthView || (isCurrentMonthView && day > currentDate);
+                
+                tr.className = `border-b border-black group transition-none ${isFutureDay ? 'bg-gray-50' : ''}`;
+                tr.style.height = `${100 / activeMonth.days}%`;
+
+                if (isToday) tr.classList.add('bg-gray-200');
+
+                // Day column
+                const tdDay = document.createElement('td');
+                tdDay.className = `w-8 min-w-[32px] max-w-[32px] border-r border-black text-center font-bold text-[9px] tracking-tighter transition-none 
+                    ${isToday ? 'bg-black text-white' : 
+                      isFutureDay ? 'text-gray-300' : 'bg-white text-black group-hover:bg-black group-hover:text-white'}`;
+                
+                if (isToday) {
+                    tdDay.innerHTML = `<span class="bg-black text-white border border-white px-[2px] text-[6px] block rotate-180" style="writing-mode: vertical-rl; margin: 0 auto;">TODAY</span>`;
+                } else {
+                    tdDay.innerText = day;
+                }
+                tr.appendChild(tdDay);
+
+                if (!activeMonth.checks[day]) activeMonth.checks[day] = {};
+
+                // Habit columns
+                activeMonth.habits.forEach(habit => {
+                    const tdCheck = document.createElement('td');
+                    tdCheck.className = 'w-[36px] min-w-[36px] max-w-[36px] border-r border-black p-0 text-center align-middle relative';
+                    
+                    const habitType = activeMonth.habitTypes[habit] || 'check';
+                    
+                    if (habitType === 'number') {
+                        // Number Input (Op til 3 cifre)
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'brutal-input';
+                        input.maxLength = 3;
+                        
+                        let val = activeMonth.checks[day][habit];
+                        if (val !== undefined && val !== null) {
+                            input.value = val;
+                        }
+
+                        if (isFutureDay) {
+                            input.disabled = true;
+                        } else {
+                            input.oninput = (e) => {
+                                // Tillad kun tal
+                                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 3);
+                            };
+                            input.onchange = (e) => {
+                                activeMonth.checks[day][habit] = e.target.value;
+                                saveState();
+                                updateChartAndScore();
+                            };
+                        }
+                        tdCheck.appendChild(input);
+                    } else {
+                        // Checkbox
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'brutal-checkbox';
+                        checkbox.checked = activeMonth.checks[day][habit] === true;
+                        
+                        if (isFutureDay) {
+                            checkbox.disabled = true;
+                        } else {
+                            checkbox.onchange = (e) => {
+                                activeMonth.checks[day][habit] = e.target.checked;
+                                saveState();
+                                updateChartAndScore();
+                            };
+                        }
+                        tdCheck.appendChild(checkbox);
+                    }
+
+                    tr.appendChild(tdCheck);
+                });
+
+                trackerBody.appendChild(tr);
+            }
+            
+            scaleHeaders();
+        }
+
+        // Auto-scale headers to fit up to 2 lines dynamically
+        function scaleHeaders() {
+            document.querySelectorAll('th.habit-header .header-text').forEach(span => {
+                let fontSize = 11; // Max start font size
+                span.style.fontSize = fontSize + 'px';
+                const parent = span.parentElement;
+                
+                // Tjekker om teksten overskrider parent bredde (som er vertikal højde) eller højde (vertikal bredde)
+                const checkFit = () => {
+                    const rect = span.getBoundingClientRect();
+                    const parentRect = parent.getBoundingClientRect();
+                    // Lidt margin
+                    return rect.width <= parentRect.width - 2 && rect.height <= parentRect.height - 4;
+                };
+
+                while (!checkFit() && fontSize > 5) {
+                    fontSize -= 0.5;
+                    span.style.fontSize = fontSize + 'px';
+                }
+            });
+        }
+
+        function updateChartAndScore() {
+            let totalChecks = 0;
+            const possibleChecks = activeMonth.days * activeMonth.habits.length;
+            const dataPoints = [];
+            
+            for (let day = 1; day <= activeMonth.days; day++) {
+                let countForDay = 0;
+                activeMonth.habits.forEach(habit => {
+                    const type = activeMonth.habitTypes[habit] || 'check';
+                    const val = activeMonth.checks[day] ? activeMonth.checks[day][habit] : undefined;
+                    
+                    if (type === 'number') {
+                        // Tæller med i scoren hvis der er skrevet et tal (ikke tomt)
+                        if (val !== undefined && val !== null && val !== '') {
+                            countForDay++;
+                            totalChecks++;
+                        }
+                    } else {
+                        // Checkbox logic
+                        if (val === true) {
+                            countForDay++;
+                            totalChecks++;
+                        }
+                    }
+                });
+                dataPoints.push(countForDay);
+            }
+
+            if (possibleChecks === 0) {
+                totalScoreDisplay.innerText = "0%";
+            } else {
+                const percentage = Math.round((totalChecks / possibleChecks) * 100);
+                totalScoreDisplay.innerText = percentage + "%";
+            }
+
+            const rect = chartContainer.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return; 
+            
+            const dynamicRowHeight = rect.height / activeMonth.days;
+            const canvas = document.getElementById('verticalChart');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            
+            ctx.clearRect(0, 0, rect.width, rect.height);
+            
+            const paddingX = 20;
+            const drawWidth = rect.width - (paddingX * 2);
+            const maxY = Math.max(activeMonth.habits.length, 1);
+            
+            // Draw axis
+            ctx.beginPath();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.5;
+            ctx.moveTo(paddingX, 0);
+            ctx.lineTo(rect.width - paddingX, 0);
+            ctx.stroke();
+            
+            ctx.font = '900 10px Inter';
+            ctx.fillStyle = '#000';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            
+            for (let i = 0; i <= maxY; i++) {
+                const x = paddingX + (i / maxY) * drawWidth;
+                
+                ctx.beginPath();
+                ctx.strokeStyle = '#6b7280'; 
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.moveTo(x, 14);
+                ctx.lineTo(x, rect.height);
+                ctx.stroke();
+                ctx.setLineDash([]); 
+                
+                ctx.beginPath();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1.5;
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, 4);
+                ctx.stroke();
+                ctx.fillText(i.toString(), x, 5);
+            }
+
+            // Draw data
+            if (activeMonth.habits.length > 0) {
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1.0; 
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                const getPoint = (dayIndex, value) => {
+                    const x = paddingX + (value / maxY) * drawWidth;
+                    const y = (dayIndex * dynamicRowHeight) + (dynamicRowHeight / 2); 
+                    return {x, y};
+                };
+
+                ctx.beginPath();
+                for (let i = 0; i < dataPoints.length; i++) {
+                    const pt = getPoint(i, dataPoints[i]);
+                    if (i === 0) {
+                        ctx.moveTo(pt.x, pt.y);
+                    } else {
+                        const prevPt = getPoint(i - 1, dataPoints[i - 1]);
+                        const midX = (prevPt.x + pt.x) / 2 + (Math.random() - 0.5) * 4; 
+                        const midY = (prevPt.y + pt.y) / 2;
+                        ctx.quadraticCurveTo(midX, midY, pt.x, pt.y);
+                    }
+                }
+                ctx.stroke();
+
+                for (let i = 0; i < dataPoints.length; i++) {
+                    const pt = getPoint(i, dataPoints[i]);
+                    ctx.fillStyle = '#fff';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1.0;
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // --- Handlinger ---
+        addHabitBtn.addEventListener('click', () => {
+            const val = newHabitInput.value.trim().toUpperCase();
+            if (val === '') {
+                showError("Skriv et navn til vanen.");
+                return;
+            }
+            if (activeMonth.habits.map(h => h.toUpperCase()).includes(val)) {
+                showError("Vanen findes allerede.");
+                return;
+            }
+            activeMonth.habits.push(val);
+            activeMonth.habitTypes[val] = 'check'; // Default type
+            newHabitInput.value = '';
+            saveState();
+            renderTable();
+            updateChartAndScore();
+        });
+
+        newHabitInput.addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') addHabitBtn.click();
+        });
+
+        function openEditModal(habitName) {
+            habitBeingEdited = habitName;
+            editHabitInput.value = habitName;
+            editHabitType.value = activeMonth.habitTypes[habitName] || 'check';
+            editModal.classList.remove('hidden');
+            editHabitInput.focus();
+        }
+
+        closeModalBtn.addEventListener('click', () => {
+            editModal.classList.add('hidden');
+            habitBeingEdited = null;
+        });
+
+        saveHabitBtn.addEventListener('click', () => {
+            const newName = editHabitInput.value.trim().toUpperCase();
+            const newType = editHabitType.value;
+            
+            if (newName === '') {
+                showError("Navnet kan ikke være tomt.");
+                return;
+            }
+            if (newName !== habitBeingEdited && activeMonth.habits.map(h => h.toUpperCase()).includes(newName)) {
+                showError("Navnet findes allerede.");
+                return;
+            }
+
+            const index = activeMonth.habits.indexOf(habitBeingEdited);
+            if (index !== -1) {
+                // Opdater navn og type
+                activeMonth.habits[index] = newName;
+                activeMonth.habitTypes[newName] = newType;
+                
+                if (newName !== habitBeingEdited) {
+                    delete activeMonth.habitTypes[habitBeingEdited];
+                }
+
+                // Opdater værdier konvertering hvis type ændres
+                for (let day = 1; day <= activeMonth.days; day++) {
+                    if (activeMonth.checks[day] && activeMonth.checks[day][habitBeingEdited] !== undefined) {
+                        let currentVal = activeMonth.checks[day][habitBeingEdited];
+                        
+                        // Konverter data hvis nødvendigt mellem check og number
+                        if (newType === 'number' && typeof currentVal === 'boolean') {
+                            activeMonth.checks[day][newName] = currentVal ? "1" : "";
+                        } else if (newType === 'check' && typeof currentVal === 'string') {
+                            activeMonth.checks[day][newName] = currentVal.trim() !== "";
+                        } else {
+                            activeMonth.checks[day][newName] = currentVal;
+                        }
+                        
+                        if (newName !== habitBeingEdited) {
+                            delete activeMonth.checks[day][habitBeingEdited];
+                        }
+                    }
+                }
+            }
+
+            saveState();
+            closeModalBtn.click();
+            renderTable();
+            updateChartAndScore();
+        });
+
+        deleteHabitBtn.addEventListener('click', () => {
+            const index = activeMonth.habits.indexOf(habitBeingEdited);
+            if (index !== -1) {
+                activeMonth.habits.splice(index, 1);
+                delete activeMonth.habitTypes[habitBeingEdited];
+                
+                for (let day = 1; day <= activeMonth.days; day++) {
+                    if (activeMonth.checks[day]) {
+                        delete activeMonth.checks[day][habitBeingEdited];
+                    }
+                }
+            }
+            
+            saveState();
+            closeModalBtn.click();
+            renderTable();
+            updateChartAndScore();
+        });
+
+        function renderApp() {
+            renderSidebar();
+            renderTable();
+            setTimeout(updateChartAndScore, 10);
+        }
+
+        window.addEventListener('resize', () => {
+            if(activeMonth) {
+                scaleHeaders(); // Resize fonts on container width changes
+                if(chartContainer.clientWidth > 0) updateChartAndScore();
+            }
+        });
+    </script>
+</body>
+</html>
